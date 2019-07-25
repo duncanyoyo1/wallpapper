@@ -47,20 +47,7 @@ class Generator {
                     if let cgImage = orginalImage.CGImage {
 
                         if index == 0 {
-                            let imageMetadata = CGImageMetadataCreateMutable()
-
-                            guard CGImageMetadataRegisterNamespaceForPrefix(imageMetadata, "http://ns.apple.com/namespace/1.0/" as CFString, "apple_desktop" as CFString, nil) else {
-                                throw NamespaceNotRegisteredError()
-                            }
-
-                            let sequenceInfo = self.createPropertyList()
-                            let base64PropertyList = try self.createBase64PropertyList(sequenceInfo: sequenceInfo)
-
-                            let imageMetadataTag = CGImageMetadataTagCreate("http://ns.apple.com/namespace/1.0/" as CFString, "apple_desktop" as CFString, "solar" as CFString, CGImageMetadataType.string, base64PropertyList as CFTypeRef)
-
-                            guard CGImageMetadataSetTagWithPath(imageMetadata, nil, "apple_desktop:solar" as CFString, imageMetadataTag!) else {
-                                throw AddTagImageError()
-                            }
+                            let imageMetadata = try createImageMetadata()
 
                             self.consoleIO.writeMessage("Adding image and metadata...", to: .debug)
                             CGImageDestinationAddImageAndMetadata(destination, cgImage, imageMetadata, self.options as CFDictionary)
@@ -90,35 +77,72 @@ class Generator {
         }
     }
 
+    func createImageMetadata() throws -> CGMutableImageMetadata {
+        let imageMetadata = CGImageMetadataCreateMutable()
+        let sequenceInfo = self.createPropertyList()
+
+        if sequenceInfo.si.count > 0 {
+            try self.appendDesktopProperties(to: imageMetadata, withKey: "solar", value: sequenceInfo)
+        } else if sequenceInfo.ti.count > 0 {
+            try self.appendDesktopProperties(to: imageMetadata, withKey: "h24", value: sequenceInfo)
+        } else {
+            try self.appendDesktopProperties(to: imageMetadata, withKey: "apr", value: sequenceInfo.ap)
+        }
+
+        return imageMetadata
+    }
+
+    func appendDesktopProperties<T>(to imageMetadata: CGMutableImageMetadata, withKey key: String, value: T) throws where T: Codable {
+        guard CGImageMetadataRegisterNamespaceForPrefix(imageMetadata, "http://ns.apple.com/namespace/1.0/" as CFString, "apple_desktop" as CFString, nil) else {
+            throw NamespaceNotRegisteredError()
+        }
+
+        let base64PropertyList = try self.createBase64PropertyList(value: value)
+        let imageMetadataTag = CGImageMetadataTagCreate("http://ns.apple.com/namespace/1.0/" as CFString, "apple_desktop" as CFString, key as CFString, CGImageMetadataType.string, base64PropertyList as CFTypeRef)
+
+        guard CGImageMetadataSetTagWithPath(imageMetadata, nil, "apple_desktop:\(key)" as CFString, imageMetadataTag!) else {
+            throw AddTagImageError()
+        }
+    }
+
     func createPropertyList() -> SequenceInfo {
 
         let sequenceInfo = SequenceInfo()
 
         for (index, item) in self.picureInfos.enumerated() {
-            let sequenceItem = SequenceItem()
-            sequenceItem.a = item.altitude
-            sequenceItem.z = item.azimuth
-            sequenceItem.i = index
 
-            if item.isForLight {
+            if item.isForLight ?? false {
                 sequenceInfo.ap.l = index
             }
 
-            if item.isForDark {
+            if item.isForDark ?? false {
                 sequenceInfo.ap.d = index
             }
 
-            sequenceInfo.si.append(sequenceItem)
+            if let altitude = item.altitude, let azimuth = item.azimuth {
+                let sequenceItem = SequenceItem()
+                sequenceItem.a = altitude
+                sequenceItem.z = azimuth
+                sequenceItem.i = index
+                sequenceInfo.si.append(sequenceItem)
+            }
+
+            if let time = item.time {
+                let timeItem = TimeItem()
+                timeItem.i = index
+                timeItem.t = Double(Calendar.current.component(.hour, from: time)) / 24.0
+                sequenceInfo.ti.append(timeItem)
+            }
         }
 
         return sequenceInfo
     }
 
-    func createBase64PropertyList(sequenceInfo: SequenceInfo) throws -> String {
+    func createBase64PropertyList<T>(value: T) throws -> String where T: Codable {
 
         let encoder = PropertyListEncoder()
         encoder.outputFormat = .binary
-        let plistData = try encoder.encode(sequenceInfo)
+        let plistData = try encoder.encode(value)
 
         let base64PropertyList = plistData.base64EncodedString()
         return base64PropertyList

@@ -28,6 +28,10 @@ class Program {
             self.consoleIO.writeMessage("OK.\n", to: .debug)
             
             let decoder = JSONDecoder()
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd'T'HH:mm:ssZ"
+            decoder.dateDecodingStrategy = .formatted(formatter)
+
             self.consoleIO.writeMessage("Decoding JSON file...", to: .debug)
             let picureInfos = try decoder.decode([PictureInfo].self, from: inputFileContents)
             self.consoleIO.writeMessage("OK (\(picureInfos.count) pictures).\n", to: .debug)
@@ -97,7 +101,7 @@ class Program {
     }
 
     func printVersion() {
-        self.consoleIO.writeMessage("1.2.2")
+        self.consoleIO.writeMessage("1.4.2")
     }
 
     func printUsage() {
